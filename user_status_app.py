@@ -81,6 +81,7 @@ class App(tk.Tk):
         self.geometry("820x460")
         self.api = None
         self.rows = {}
+        self.users = []
 
         top = ttk.Frame(self, padding=8)
         top.pack(fill="x")
@@ -93,6 +94,16 @@ class App(tk.Tk):
         self.key.insert(0, os.environ.get("SUPABASE_SERVICE_KEY", ""))
         self.key.grid(row=0, column=3, padx=4)
         ttk.Button(top, text="Connect", command=self.connect).grid(row=0, column=4)
+
+        sb = ttk.Frame(self, padding=(8, 0))
+        sb.pack(fill="x")
+        ttk.Label(sb, text="Search").pack(side="left")
+        self.query = tk.StringVar()
+        self.query.trace_add("write", lambda *_: self.render())
+        ent = ttk.Entry(sb, textvariable=self.query)
+        ent.pack(side="left", fill="x", expand=True, padx=6)
+        ttk.Button(sb, text="Clear", command=lambda: self.query.set("")).pack(side="left")
+        ttk.Label(sb, text="(name, id, online / offline / banned)").pack(side="left", padx=6)
 
         cols = ("name", "status", "last", "hidden", "banned")
         self.tree = ttk.Treeview(self, columns=cols, show="headings",
@@ -134,15 +145,28 @@ class App(tk.Tk):
             self.msg.config(text="Error - see popup")
             messagebox.showerror("Could not load users", str(e))
             return
+        self.users = users
+        self.render()
+        if loop:
+            self.after(AUTO_REFRESH_MS, lambda: self.refresh(loop=True))
+
+    def render(self):
         now = datetime.now(timezone.utc)
+        q = self.query.get().strip().lower()
         sel = self.tree.selection()
         self.tree.delete(*self.tree.get_children())
-        self.rows = {u["id"]: u for u in users}
-        online = 0
-        for u in users:
+        self.rows = {}
+        online = shown = 0
+        for u in self.users:
             d = now - parse_ts(u["last_active_at"])
             is_on = d < timedelta(minutes=ONLINE_WINDOW_MIN) and not u["is_banned"]
             online += is_on
+            state = "banned" if u["is_banned"] else ("online" if is_on else "offline")
+            if q and not (q in u["display_name"].lower() or q in u["id"].lower()
+                          or q == state):
+                continue
+            shown += 1
+            self.rows[u["id"]] = u
             tags = ("banned",) if u["is_banned"] else (("online",) if is_on else ())
             self.tree.insert("", "end", iid=u["id"], tags=tags, values=(
                 u["display_name"], "ONLINE" if is_on else "offline", ago(d),
@@ -150,10 +174,8 @@ class App(tk.Tk):
                 "YES" if u["is_banned"] else "no"))
         if sel and self.tree.exists(sel[0]):
             self.tree.selection_set(sel[0])
-        self.msg.config(text=f"{online} online / {len(users)} users - "
-                             f"{now.astimezone():%H:%M:%S}")
-        if loop:
-            self.after(AUTO_REFRESH_MS, lambda: self.refresh(loop=True))
+        self.msg.config(text=f"{online} online / {len(self.users)} users"
+                             f"{f' - showing {shown}' if q else ''}")
 
     def selected(self):
         sel = self.tree.selection()
