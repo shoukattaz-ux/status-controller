@@ -1,0 +1,33 @@
+name: Build Windows exe
+
+# Run it by hand: GitHub -> Actions -> "Build Windows exe" -> Run workflow.
+# It builds StatusController.exe and publishes it on the Releases page.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyinstaller
+      - run: pyinstaller --onefile --windowed --name StatusController user_status_app.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StatusController-windows
+          path: dist/StatusController.exe
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "exe-${{ github.run_number }}" dist/StatusController.exe \
+            --title "Status Controller (Windows exe) build ${{ github.run_number }}" \
+            --notes "Download StatusController.exe and double-click it. Paste your Supabase service_role key in the app." \
+            --target "${{ github.sha }}"
